@@ -7,7 +7,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Toaster } from "sonner";
 
 import appCss from "../styles.css?url";
@@ -96,66 +96,6 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-  const [auth, setAuth] = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("sbm_auth") === "true";
-    }
-    return false;
-  });
-
-  const [id, setId] = useState("");
-  const [pass, setPass] = useState("");
-  const [err, setErr] = useState("");
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (id === "satyabrat" && pass === "qwertyui") {
-      setAuth(true);
-      sessionStorage.setItem("sbm_auth", "true");
-    } else {
-      setErr("Invalid ID or password");
-    }
-  };
-
-  if (!auth) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-        <form onSubmit={handleLogin} className="w-full max-w-md rounded-2xl glass p-6 sm:p-8 shadow-2xl border border-border">
-          <div className="mb-6 sm:mb-8 text-center">
-            <h2 className="font-display text-2xl sm:text-3xl font-bold text-gradient">SBM Slides</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Please sign in to continue</p>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-muted-foreground">ID</label>
-              <input 
-                type="text" 
-                value={id} 
-                onChange={e => setId(e.target.value)} 
-                className="w-full rounded-xl bg-black/50 px-4 py-3 text-sm outline-none border border-border focus:border-primary focus:ring-1 focus:ring-primary transition" 
-                placeholder="Enter your ID"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-muted-foreground">Password</label>
-              <input 
-                type="password" 
-                value={pass} 
-                onChange={e => setPass(e.target.value)} 
-                className="w-full rounded-xl bg-black/50 px-4 py-3 text-sm outline-none border border-border focus:border-primary focus:ring-1 focus:ring-primary transition" 
-                placeholder="••••••••"
-              />
-            </div>
-            {err && <p className="text-sm text-red-500">{err}</p>}
-            <button type="submit" className="mt-4 w-full rounded-xl btn-brand py-3 text-sm font-semibold transition">
-              Sign In
-            </button>
-          </div>
-        </form>
-      </div>
-    );
-  }
-
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />

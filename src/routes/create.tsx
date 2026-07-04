@@ -1,10 +1,10 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import * as fabric from "fabric";
 import {
   Type, Square, Circle as CircleIcon, Minus, Image as ImageIcon,
   Undo2, Redo2, Trash2, Save, Download, Plus, Copy, ArrowLeft,
-  Bold, Italic, Underline as UnderlineIcon, Home,
+  Bold, Italic, Underline as UnderlineIcon, Home, Pencil, MousePointer, Eraser, FlaskConical,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import ChemStructure from "@/components/ChemStructure";
 
 export const Route = createFileRoute("/create")({
   head: () => ({
@@ -90,6 +91,11 @@ function CreatePage() {
   const [format, setFormat] = useState("pdf");
   const [selection, setSelection] = useState<fabric.Object | null>(null);
   const [tick, setTick] = useState(0);
+  const [drawMode, setDrawMode] = useState(false);
+  const [eraseMode, setEraseMode] = useState(false);
+  const [penColor, setPenColor] = useState("#facc15");
+  const [penSize, setPenSize] = useState(4);
+  const [chemOpen, setChemOpen] = useState(false);
 
   // Init canvas
   useEffect(() => {
@@ -118,6 +124,9 @@ function CreatePage() {
     canvas.on("selection:created", (e) => setSelection(e.selected?.[0] || null));
     canvas.on("selection:updated", (e) => setSelection(e.selected?.[0] || null));
     canvas.on("selection:cleared", () => setSelection(null));
+
+    // Enable touch/stylus support
+    canvas.allowTouchScrolling = false;
 
     // Load first slide
     loadSlide(canvas, presentation.slides[0]);
@@ -243,6 +252,110 @@ function CreatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIdx, presentation.slides.length, switchSlide]);
 
+  // ── External paste (images + text from other websites) ──────────────────
+  useEffect(() => {
+    const onPaste = async (e: ClipboardEvent) => {
+      const canvas = fabricRef.current;
+      if (!canvas) return;
+
+      // Don't hijack paste inside input / textarea / contenteditable
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) return;
+
+      const items = e.clipboardData?.items;
+      if (!items || items.length === 0) return;
+
+      // 1️⃣ Image (screenshot, "Copy Image" from browser context menu)
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          if (!blob) continue;
+          const url = URL.createObjectURL(blob);
+          try {
+            const img = await fabric.FabricImage.fromURL(url, { crossOrigin: "anonymous" });
+            const maxW = 900;
+            const maxH = 600;
+            const scale = Math.min(
+              maxW / (img.width || maxW),
+              maxH / (img.height || maxH),
+              1,
+            );
+            img.scale(scale);
+            img.set({ left: 180, top: 180 });
+            canvas.add(img);
+            canvas.setActiveObject(img);
+            canvas.requestRenderAll();
+            toast.success("Image pasted from clipboard");
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+          return; // handled
+        }
+      }
+
+      // 2️⃣ HTML (rich text copied from a website — extract readable text)
+      for (const item of Array.from(items)) {
+        if (item.type === "text/html") {
+          e.preventDefault();
+          item.getAsString((html) => {
+            const div = document.createElement("div");
+            div.innerHTML = html;
+            const text = (div.textContent || div.innerText || "").trim();
+            if (!text) return;
+            const textObj = new fabric.Textbox(text, {
+              left: 180,
+              top: 180,
+              width: 1000,
+              fontSize: 40,
+              fill: "#ffffff",
+              fontFamily: "Inter",
+              lineHeight: 1.35,
+            });
+            canvas.add(textObj);
+            canvas.setActiveObject(textObj);
+            canvas.requestRenderAll();
+            toast.success("Text pasted from clipboard");
+          });
+          return;
+        }
+      }
+
+      // 3️⃣ Plain text fallback
+      for (const item of Array.from(items)) {
+        if (item.type === "text/plain") {
+          e.preventDefault();
+          item.getAsString((text) => {
+            if (!text.trim()) return;
+            const textObj = new fabric.Textbox(text.trim(), {
+              left: 180,
+              top: 180,
+              width: 1000,
+              fontSize: 40,
+              fill: "#ffffff",
+              fontFamily: "Inter",
+              lineHeight: 1.35,
+            });
+            canvas.add(textObj);
+            canvas.setActiveObject(textObj);
+            canvas.requestRenderAll();
+            toast.success("Text pasted from clipboard");
+          });
+          return;
+        }
+      }
+    };
+
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, []); // no deps — uses stable fabricRef
+
+
   const undo = async () => {
     const canvas = fabricRef.current;
     const h = historyRef.current;
@@ -278,17 +391,17 @@ function CreatePage() {
 
   const addHeading = () => add(new fabric.Textbox("Heading", {
     left: 200, top: 200, width: 800, fontSize: 120, fontWeight: "700",
-    fill: "#ffffff", fontFamily: "Poppins",
+    fill: "#facc15", fontFamily: "Poppins",
   }));
   const addSubheading = () => add(new fabric.Textbox("Subheading", {
     left: 200, top: 350, width: 800, fontSize: 64, fontWeight: "600",
-    fill: "#c8d2ff", fontFamily: "Poppins",
+    fill: "#facc15", fontFamily: "Poppins",
   }));
   const addParagraph = () => add(new fabric.Textbox("Add your text here. Click to edit.", {
-    left: 200, top: 450, width: 1200, fontSize: 48, fill: "#e5e7eb", fontFamily: "Inter",
+    left: 200, top: 450, width: 1200, fontSize: 48, fill: "#facc15", fontFamily: "Inter",
   }));
   const addBullets = () => add(new fabric.Textbox("• First point\n• Second point\n• Third point", {
-    left: 200, top: 450, width: 1200, fontSize: 48, fill: "#ffffff", fontFamily: "Inter", lineHeight: 1.4,
+    left: 200, top: 450, width: 1200, fontSize: 48, fill: "#facc15", fontFamily: "Inter", lineHeight: 1.4,
   }));
   const addRect = () => add(new fabric.Rect({
     left: 300, top: 300, width: 300, height: 200, fill: "rgba(139,92,246,0.8)",
@@ -298,7 +411,7 @@ function CreatePage() {
     left: 400, top: 300, radius: 120, fill: "rgba(96,165,250,0.85)",
   }));
   const addLine = () => add(new fabric.Line([200, 450, 900, 450], {
-    stroke: "#ffffff", strokeWidth: 4,
+    stroke: "#facc15", strokeWidth: 4,
   }));
   const addImage = () => {
     const input = document.createElement("input");
@@ -313,6 +426,29 @@ function CreatePage() {
       add(img);
     };
     input.click();
+  };
+
+  const insertChem = async (dataUrl: string, label: string, sizeW: number) => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const img = await fabric.FabricImage.fromURL(dataUrl, { crossOrigin: "anonymous" });
+    // Scale image to the user's chosen width, preserve aspect ratio
+    const scale = sizeW / (img.width || 500);
+    img.scale(scale);
+    img.set({ left: 200, top: 180 });
+    add(img);
+    // Add compound label below
+    const text = new fabric.Textbox(label, {
+      left: 200,
+      top: 180 + (img.height || 300) * scale + 12,
+      width: sizeW,
+      fontSize: 32,
+      fill: "#facc15",
+      fontFamily: "Inter",
+      fontWeight: "500",
+      textAlign: "center",
+    });
+    add(text);
   };
 
   // Slide management
@@ -399,6 +535,86 @@ function CreatePage() {
   };
 
   const isText = selection && ["textbox", "text", "i-text"].includes((selection as any).type);
+
+  // Toggle pencil / free-draw mode
+  const toggleDrawMode = useCallback(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const next = !drawMode;
+    setDrawMode(next);
+    setEraseMode(false);
+    canvas.isDrawingMode = next;
+    if (next) {
+      canvas.defaultCursor = "crosshair";
+      const brush = new fabric.PencilBrush(canvas);
+      brush.color = penColor;
+      brush.width = penSize;
+      canvas.freeDrawingBrush = brush;
+    } else {
+      canvas.defaultCursor = "default";
+    }
+  }, [drawMode, penColor, penSize]);
+
+  // Toggle eraser mode
+  const toggleEraseMode = useCallback(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const next = !eraseMode;
+    setEraseMode(next);
+    setDrawMode(false);
+    canvas.isDrawingMode = false;
+    canvas.defaultCursor = next ? "crosshair" : "default";
+  }, [eraseMode]);
+
+  // Eraser logic
+  useEffect(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+
+    let isDragging = false;
+
+    const eraseTarget = (e: any) => {
+      const target = e.target;
+      if (target && target.data?.mark !== FOOTER_MARK) {
+        canvas.remove(target);
+        canvas.discardActiveObject();
+        canvas.requestRenderAll();
+      }
+    };
+
+    const onDown = (e: any) => {
+      if (!eraseMode) return;
+      isDragging = true;
+      eraseTarget(e);
+    };
+
+    const onMove = (e: any) => {
+      if (!eraseMode || !isDragging) return;
+      eraseTarget(e);
+    };
+
+    const onUp = () => {
+      isDragging = false;
+    };
+
+    canvas.on("mouse:down", onDown);
+    canvas.on("mouse:move", onMove);
+    canvas.on("mouse:up", onUp);
+
+    return () => {
+      canvas.off("mouse:down", onDown);
+      canvas.off("mouse:move", onMove);
+      canvas.off("mouse:up", onUp);
+    };
+  }, [eraseMode]);
+
+  // Keep brush settings in sync
+  useEffect(() => {
+    const canvas = fabricRef.current;
+    if (!canvas || !canvas.freeDrawingBrush) return;
+    canvas.freeDrawingBrush.color = penColor;
+    canvas.freeDrawingBrush.width = penSize;
+  }, [penColor, penSize]);
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -489,18 +705,108 @@ function CreatePage() {
         <main className="flex flex-1 flex-col overflow-hidden">
           {/* Toolbar */}
           <div className="flex flex-nowrap md:flex-wrap items-center gap-1 border-b border-border px-3 py-2 glass overflow-x-auto">
-            <ToolBtn icon={<Type className="h-4 w-4" />} label="Heading" onClick={addHeading} />
-            <ToolBtn icon={<Type className="h-3.5 w-3.5" />} label="Sub" onClick={addSubheading} />
-            <ToolBtn icon={<Type className="h-3 w-3" />} label="Text" onClick={addParagraph} />
-            <ToolBtn icon={<span className="text-xs">•</span>} label="Bullets" onClick={addBullets} />
-            <div className="h-6 w-px bg-border mx-1" />
-            <ToolBtn icon={<Square className="h-4 w-4" />} label="Rect" onClick={addRect} />
-            <ToolBtn icon={<CircleIcon className="h-4 w-4" />} label="Circle" onClick={addCircle} />
-            <ToolBtn icon={<Minus className="h-4 w-4" />} label="Line" onClick={addLine} />
-            <div className="h-6 w-px bg-border mx-1" />
-            <ToolBtn icon={<ImageIcon className="h-4 w-4" />} label="Image" onClick={addImage} />
+            {!drawMode && !eraseMode && (
+              <>
+                <ToolBtn icon={<Type className="h-4 w-4" />} label="Heading" onClick={addHeading} />
+                <ToolBtn icon={<Type className="h-3.5 w-3.5" />} label="Sub" onClick={addSubheading} />
+                <ToolBtn icon={<Type className="h-3 w-3" />} label="Text" onClick={addParagraph} />
+                <ToolBtn icon={<span className="text-xs">•</span>} label="Bullets" onClick={addBullets} />
+                <div className="h-6 w-px bg-border mx-1" />
+                <ToolBtn icon={<Square className="h-4 w-4" />} label="Rect" onClick={addRect} />
+                <ToolBtn icon={<CircleIcon className="h-4 w-4" />} label="Circle" onClick={addCircle} />
+                <ToolBtn icon={<Minus className="h-4 w-4" />} label="Line" onClick={addLine} />
+                <div className="h-6 w-px bg-border mx-1" />
+                <ToolBtn icon={<ImageIcon className="h-4 w-4" />} label="Image" onClick={addImage} />
+                <div className="h-6 w-px bg-border mx-1" />
+                <ToolBtn
+                  icon={<FlaskConical className="h-4 w-4" />}
+                  label="Chemistry"
+                  onClick={() => setChemOpen(true)}
+                />
+              </>
+            )}
 
-            {selection && (
+            {/* Pencil toggle */}
+            <div className="h-6 w-px bg-border mx-1" />
+            <button
+              onClick={toggleDrawMode}
+              title={drawMode ? "Exit Draw Mode" : "Draw / Pencil"}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                drawMode
+                  ? "bg-violet-600 text-white shadow-[0_0_12px_rgba(139,92,246,0.6)]"
+                  : "hover:bg-muted"
+              }`}
+            >
+              {drawMode ? <MousePointer className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+              {drawMode ? "Select" : "Draw"}
+            </button>
+            <button
+              onClick={toggleEraseMode}
+              title={eraseMode ? "Exit Erase Mode" : "Eraser"}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                eraseMode
+                  ? "bg-red-600 text-white shadow-[0_0_12px_rgba(220,38,38,0.6)]"
+                  : "hover:bg-muted"
+              }`}
+            >
+              {eraseMode ? <MousePointer className="h-4 w-4" /> : <Eraser className="h-4 w-4" />}
+              {eraseMode ? "Select" : "Erase"}
+            </button>
+
+            {drawMode && (
+              <>
+                {/* Pen color */}
+                <label className="relative flex items-center gap-1.5 ml-2 cursor-pointer" title="Pen color">
+                  <span
+                    className="h-7 w-7 rounded-full border-2 border-white/30 flex-shrink-0"
+                    style={{ background: penColor }}
+                  />
+                  <input
+                    type="color"
+                    value={penColor}
+                    onChange={(e) => {
+                      setPenColor(e.target.value);
+                      const canvas = fabricRef.current;
+                      if (canvas?.freeDrawingBrush) canvas.freeDrawingBrush.color = e.target.value;
+                    }}
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                  />
+                </label>
+
+                {/* Pen size */}
+                <div className="flex items-center gap-1.5 ml-1">
+                  <span className="text-xs text-muted-foreground">Size</span>
+                  <input
+                    type="range" min={1} max={40} step={1} value={penSize}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setPenSize(v);
+                      const canvas = fabricRef.current;
+                      if (canvas?.freeDrawingBrush) canvas.freeDrawingBrush.width = v;
+                    }}
+                    className="w-24 accent-violet-500"
+                  />
+                  <span className="text-xs text-muted-foreground w-5">{penSize}</span>
+                </div>
+
+                {/* Clear drawings */}
+                <button
+                  onClick={() => {
+                    const canvas = fabricRef.current;
+                    if (!canvas) return;
+                    const paths = canvas.getObjects().filter((o) => o.type === "path" && (o as any).data?.mark !== FOOTER_MARK);
+                    paths.forEach((p) => canvas.remove(p));
+                    canvas.requestRenderAll();
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium hover:bg-red-500/20 text-red-400 transition ml-1"
+                  title="Clear all drawings"
+                >
+                  <Eraser className="h-4 w-4" /> Clear
+                </button>
+              </>
+            )}
+
+            {selection && !drawMode && !eraseMode && (
               <>
                 <div className="h-6 w-px bg-border mx-1" />
                 <div className="flex items-center gap-2 pl-1">
@@ -603,6 +909,13 @@ function CreatePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Chemistry Structure Generator */}
+      <ChemStructure
+        open={chemOpen}
+        onOpenChange={setChemOpen}
+        onInsert={insertChem}
+      />
     </div>
   );
 }
